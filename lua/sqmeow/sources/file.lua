@@ -61,6 +61,7 @@ function M.save(connections, opts)
       url = connection.url,
       read_only = connection.read_only or nil,
       ssh = connection.ssh,
+      group = connection.group,
     }
   end, connections)
 
@@ -105,6 +106,7 @@ function M.update(name, connection, opts)
     url = connection.url,
     read_only = connection.read_only,
     ssh = connection.ssh,
+    group = connection.group,
   }
   return M.save(connections, opts)
 end

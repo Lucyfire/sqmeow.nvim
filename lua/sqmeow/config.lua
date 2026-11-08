@@ -69,6 +69,8 @@ M.defaults = {
   icons = {
     -- Drawer node icons.
     connection = '󰆼',
+    -- A folder of connections, drawn for the `group` field.
+    connection_group = '󰉋',
     database = '󰆼',
     schema = '󰙅',
     table = '󰓫',

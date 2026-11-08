@@ -15,6 +15,7 @@ local M = {}
 ---@field read_only boolean|nil Runs only statements that read.
 ---@field ssh string|nil The `user@host` an SSH tunnel to the database goes through.
 ---@field env_file string|nil Project-local dotenv path used for this connection.
+---@field group string|nil The drawer folder it draws in, such as `work` or `work/prod`.
 
 --- One buffer's connection, role, and query telemetry, as `sqmeow.api.view.status()` reports it.
 ---@class sqmeow.Status

@@ -13,6 +13,7 @@ end
 --- <
 M.highlights = {
   connection = 'SqmeowIconConnection',
+  connection_group = 'SqmeowIconConnectionGroup',
   database = 'SqmeowIconSchema',
   schema = 'SqmeowIconSchema',
   table = 'SqmeowIconTable',

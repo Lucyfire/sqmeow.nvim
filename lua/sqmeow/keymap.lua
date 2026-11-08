@@ -58,7 +58,11 @@ M.defaults = {
     { action = 'yank_name', lhs = 'y', desc = 'Yank the qualified name or history command' },
     { action = 'yank_select', lhs = 's', desc = 'Yank a SELECT for this relation' },
     -- `r` refreshes on every surface.
-    { action = 'rename', lhs = 'R', desc = 'Rename the connection or scratchpad under the cursor' },
+    {
+      action = 'rename',
+      lhs = 'R',
+      desc = 'Rename the connection, folder or scratchpad under the cursor',
+    },
     { action = 'use', lhs = 'u', desc = 'Run queries against this connection' },
     { action = 'add', lhs = 'A', desc = 'Add a connection' },
     {

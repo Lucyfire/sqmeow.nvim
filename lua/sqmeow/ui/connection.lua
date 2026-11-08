@@ -10,12 +10,23 @@ local READ_ONLY = { key = 'read_only', label = 'Read only', checkbox = true }
 --- The SSH host a server is reached through, which a database in a file has no use for.
 local SSH = { key = 'ssh', label = 'SSH', optional = true, hint = 'user@bastion' }
 
+--- The drawer folder the connection draws in, nested on `/`.
+local GROUP = { key = 'group', label = 'Group', optional = true, hint = 'work/prod' }
+
 --- The tunnel the answers name, or nil for none.
 ---@param answers table<string, string>
 ---@return string|nil
 local function tunnel(answers)
   local ssh = vim.trim(answers.ssh or '')
   return ssh ~= '' and ssh or nil
+end
+
+--- The folder the answers name, or nil for the root.
+---@param answers table<string, string>
+---@return string|nil
+local function group(answers)
+  local group = vim.trim(answers.group or '')
+  return group ~= '' and group or nil
 end
 
 --- What is wrong with the answers, if anything.
@@ -54,7 +65,7 @@ local function form(dialect, values, existing)
     title = existing and ('Edit %s'):format(existing) or ('New %s connection'):format(spec.label),
     fields = vim.list_extend(
       require('sqmeow.core.dialects').fields(dialect),
-      spec.port and { SSH, READ_ONLY } or { READ_ONLY }
+      spec.port and { SSH, GROUP, READ_ONLY } or { GROUP, READ_ONLY }
     ),
     values = vim.tbl_extend('keep', values, { read_only = 'no' }),
     -- A new connection is a run of questions with no answers yet.
@@ -69,16 +80,25 @@ local function form(dialect, values, existing)
       if existing then
         require('sqmeow.api.connection').edit(
           existing,
-          { name = name, url = url, read_only = read_only, ssh = tunnel(answers) or '' }
+          {
+            name = name,
+            url = url,
+            read_only = read_only,
+            ssh = tunnel(answers) or '',
+            group = group(answers) or '',
+          }
         )
         return
       end
 
       local ssh = tunnel(answers)
-      if require('sqmeow.api.connection').save(name, url, { read_only = read_only, ssh = ssh }) then
+      local folder = group(answers)
+      if
+        require('sqmeow.api.connection').save(name, url, { read_only = read_only, ssh = ssh, group = folder })
+      then
         require('sqmeow.api.connection').connect(
           url,
-          { name = name, read_only = read_only, ssh = ssh }
+          { name = name, read_only = read_only, ssh = ssh, group = folder }
         )
       end
     end,
@@ -98,6 +118,7 @@ function M.from_url(values)
       { key = 'name', label = 'Name' },
       { key = 'url', label = 'URL', hint = 'postgres://user@localhost/app' },
       SSH,
+      GROUP,
       READ_ONLY,
     },
     values = vim.tbl_extend('keep', values or {}, { read_only = 'no' }),
@@ -119,10 +140,13 @@ function M.from_url(values)
       local name, url = vim.trim(answers.name), vim.trim(answers.url)
       local read_only = answers.read_only == 'yes'
       local ssh = tunnel(answers)
-      if require('sqmeow.api.connection').save(name, url, { read_only = read_only, ssh = ssh }) then
+      local folder = group(answers)
+      if
+        require('sqmeow.api.connection').save(name, url, { read_only = read_only, ssh = ssh, group = folder })
+      then
         require('sqmeow.api.connection').connect(
           url,
-          { name = name, read_only = read_only, ssh = ssh }
+          { name = name, read_only = read_only, ssh = ssh, group = folder }
         )
       end
     end,
@@ -134,7 +158,9 @@ function M.from_url(values)
 end
 
 --- Ask which database, then ask for its details.
-function M.create()
+--- A folder under the cursor prefills the group, the way a scratchpad lands in its folder.
+---@param prefix string|nil The group the new connection starts in.
+function M.create(prefix)
   local icons = require('sqmeow.core.icons')
 
   local items = vim.tbl_map(function(dialect)
@@ -153,9 +179,9 @@ function M.create()
     items = items,
     on_choice = function(choice)
       if choice == 'url' then
-        return M.from_url()
+        return M.from_url(prefix and { group = prefix } or nil)
       end
-      form(choice, {}, nil)
+      form(choice, prefix and { group = prefix } or {}, nil)
     end,
   })
 
@@ -176,6 +202,7 @@ function M.edit(spec)
   values.name = spec.name
   values.read_only = spec.read_only and 'yes' or 'no'
   values.ssh = spec.ssh
+  values.group = spec.group
   form(values.dialect, values, spec.name)
   return true
 end

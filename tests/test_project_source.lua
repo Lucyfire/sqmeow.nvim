@@ -136,6 +136,32 @@ ssh = "user@bastion"
   eq(found[2].env_file, vim.fs.joinpath(root, '.env'))
 end
 
+T['carries a group from either entry shape through the real TOML parser'] = function()
+  write([=[
+[dev]
+type = "postgres"
+host = "localhost"
+database = "app"
+group = "work/prod"
+
+[direct]
+url = "sqlite://direct.db"
+group = "one-off"
+]=])
+  local found, problems = sources.load()
+  eq(problems, {})
+  eq(found[1].group, 'work/prod')
+  eq(found[2].group, 'one-off')
+end
+
+T['rejects a group that is not a string'] = function()
+  write('[dev]\ntype = "postgres"\ngroup = 5')
+  local found, problems = sources.load()
+  eq(found, {})
+  eq(#problems, 1)
+  helpers.contains(problems[1], 'group must be a string')
+end
+
 T['loads project dotenv only in the engine when connecting and rereads on reconnect'] = function()
   local api = require('sqmeow.api.connection')
   local state = require('sqmeow.core.state')

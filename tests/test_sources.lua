@@ -79,6 +79,27 @@ T['file']['does not write back the source label it read'] = function()
   eq(written[1].source, nil)
 end
 
+T['file']['round-trips the group it saved'] = function()
+  only_file()
+
+  eq(file.add({ name = 'prod', url = 'postgres://host/prod', group = 'work/prod' }), true)
+  local found = sources.load()
+  eq(found[1].group, 'work/prod')
+
+  -- Rewriting the file keeps the folder beside the rest of the settings.
+  eq(file.update('prod', { name = 'prod', url = 'postgres://host/prod' }, { path = scratch }), true)
+  eq(sources.load()[1].group, nil)
+end
+
+T['file']['drops a group that is not a non-empty string'] = function()
+  helpers.writefile(scratch, { '[{"name":"a","url":"sqlite://a.db","group":""}]' })
+  only_file()
+  eq(sources.load()[1].group, nil)
+
+  helpers.writefile(scratch, { '[{"name":"a","url":"sqlite://a.db","group":5}]' })
+  eq(sources.load()[1].group, nil)
+end
+
 T['file']['edits one connection in place'] = function()
   save('a', 'sqlite://a.db')
   save('b', 'sqlite://b.db')
@@ -188,6 +209,35 @@ end
 T['editing']['refuses a connection no source declares'] = function()
   only_file()
   eq(require('sqmeow.api.connection').edit('nope', { name = 'x' }), false)
+end
+
+T['editing']['moves a saved connection between folders'] = function()
+  save('app', 'sqlite://app.db')
+  only_file()
+
+  eq(require('sqmeow.api.connection').edit('app', { group = 'work/prod' }), true)
+  eq(sources.load()[1].group, 'work/prod')
+
+  -- An empty group clears the folder again.
+  eq(require('sqmeow.api.connection').edit('app', { group = '' }), true)
+  eq(sources.load()[1].group, nil)
+end
+
+T['editing']['moves an open connection with its saved one'] = function()
+  save('app', 'sqlite://app.db')
+  only_file()
+
+  local id = state.next_connection_id()
+  state.add_connection({
+    id = id,
+    name = 'app',
+    url = 'sqlite://app.db',
+    dialect = 'sqlite',
+    state = 'connected',
+  })
+
+  require('sqmeow.api.connection').edit('app', { group = 'work' })
+  eq(state.connections[id].group, 'work')
 end
 
 T['editing']['renames an open connection on its own'] = function()
@@ -359,6 +409,20 @@ T['connecting']['opens a new connection when not already open'] = function()
   local returned_id = require('sqmeow.api.connection').connect_named('dev')
   eq(returned_id, 42)
   eq(connected, { url = 'sqlite://dev.db', name = 'dev' })
+end
+
+T['connecting']['carries the saved group to the connection'] = function()
+  file.save({ name = 'dev', url = 'sqlite://dev.db', group = 'work' }, { path = scratch })
+  only_file()
+
+  local connected
+  helpers.stub(require('sqmeow.api.connection'), 'connect', function(_, opts)
+    connected = opts
+    return 42
+  end)
+
+  require('sqmeow.api.connection').connect_named('dev')
+  eq(connected.group, 'work')
 end
 
 T['connecting']['refuses changed connection settings'] = MiniTest.new_set({

@@ -36,7 +36,7 @@ local function connection(name, fields, root)
       return nil, 'url must be a non-empty string'
     end
     for key, value in pairs(fields) do
-      if key ~= 'url' and key ~= 'read_only' and key ~= 'ssh' then
+      if key ~= 'url' and key ~= 'read_only' and key ~= 'ssh' and key ~= 'group' then
         return nil, ('`url` cannot be combined with `%s`'):format(key)
       end
       if key == 'read_only' and type(value) ~= 'boolean' then
@@ -45,8 +45,12 @@ local function connection(name, fields, root)
       if key == 'ssh' and type(value) ~= 'string' then
         return nil, 'ssh must be a string'
       end
+      if key == 'group' and type(value) ~= 'string' then
+        return nil, 'group must be a string'
+      end
     end
-    return { name = name, url = fields.url, read_only = fields.read_only, ssh = fields.ssh }
+    return
+      { name = name, url = fields.url, read_only = fields.read_only, ssh = fields.ssh, group = fields.group }
   end
   local dialects = require('sqmeow.core.dialects')
   local dialect = type(fields.type) == 'string' and dialects.get(fields.type)
@@ -54,7 +58,7 @@ local function connection(name, fields, root)
     return nil, 'type must name a supported database dialect'
   end
 
-  local allowed = { type = true, read_only = true, ssh = true }
+  local allowed = { type = true, read_only = true, ssh = true, group = true }
   for _, field in ipairs(dialect.fields) do
     allowed[field.key] = true
   end
@@ -93,7 +97,8 @@ local function connection(name, fields, root)
   if not url then
     return nil, err
   end
-  return { name = name, url = url, read_only = fields.read_only, ssh = fields.ssh }
+  return
+    { name = name, url = url, read_only = fields.read_only, ssh = fields.ssh, group = fields.group }
 end
 
 --- Read and validate the nearest config, starting the engine only if one exists.

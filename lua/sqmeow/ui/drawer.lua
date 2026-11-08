@@ -12,6 +12,8 @@ local expanded = {}
 -- Scratchpad folders drawn at least once. A folder opens on first sight, so a new folder
 -- does not hide what was just created, but stays as the user left it afterwards.
 local seen_pads = {}
+-- Connection folders, on first sight for the same reason.
+local seen_groups = {}
 local cache = {}
 -- Table editors waiting for column introspection, cancelled with their cached level.
 local pending_table_edits = {}
@@ -84,6 +86,27 @@ end
 function M.expand(conn_id, path)
   expanded[node_key(conn_id, path)] = true
   M.load(conn_id, path)
+end
+
+--- The connection folders left open, sorted, for the session to save.
+---@return string[]
+function M.open_groups()
+  local open = {}
+  for key, value in pairs(expanded) do
+    if value == true and vim.startswith(key, 'group:') then
+      table.insert(open, key:sub(#'group:' + 1))
+    end
+  end
+  table.sort(open)
+  return open
+end
+
+--- Mark saved folders open before their connections appear.
+---@param groups string[]
+function M.reopen_groups(groups)
+  for _, group in ipairs(groups or {}) do
+    expanded['group:' .. group] = true
+  end
 end
 
 --- Ask the engine for one level of the tree.
@@ -532,6 +555,7 @@ function M.connection_rows()
         note = connection.state,
         status = connection.state,
         connected = connection.state == 'connected',
+        group = connection.group,
       })
     end
   end
@@ -545,11 +569,159 @@ function M.connection_rows()
         note = 'saved',
         status = state.failures[spec.name] and 'error' or 'disconnected',
         connected = false,
+        group = spec.group,
       })
     end
   end
 
   return drawn
+end
+
+--- The drawer folder a row draws in, or nil for the root.
+--- Split on `/`, trimmed, and empty pieces dropped, so `a//b` and `/a/` are both `a/b`.
+---@param row table
+---@return string|nil
+local function group_of(row)
+  local group = type(row.group) == 'string' and row.group or ''
+  local parts = {}
+  for piece in vim.gsplit(group, '/', { plain = true }) do
+    piece = vim.trim(piece)
+    if piece ~= '' then
+      table.insert(parts, piece)
+    end
+  end
+  if #parts == 0 then
+    return nil
+  end
+  return table.concat(parts, '/')
+end
+
+--- Whether one folder path sits at or under another.
+local function in_group(dir, prefix)
+  return dir == prefix or vim.startswith(dir, prefix .. '/')
+end
+
+--- The node one connection row draws as.
+---@param row table
+---@return table
+local function connection_node(row)
+  local parts = assert(nui())
+  local icons = require('sqmeow.core.icons')
+  local open = row.id ~= nil and M.is_expanded(row.id, {})
+
+  local node = parts.Tree.Node({
+    id = 'conn:' .. tostring(row.id or row.name),
+    conn_id = row.id,
+    path = {},
+    name = row.name,
+    kind = 'connection',
+    icon_kind = icons.connection_kind(row.dialect),
+    badge = row.status,
+    -- A connection on its way, or one that failed, says so in words beside the dot.
+    note = (row.status == 'connecting' or row.status == 'error') and row.status
+      or row.dialect
+      or row.note,
+    url = row.url,
+    group = row.group,
+    -- A connection nobody has opened has nothing to show yet.
+    expandable = row.connected,
+    show_marker = true,
+  }, open and schema_nodes(row.id, {}) or nil)
+
+  if open then
+    node:expand()
+  end
+  return node
+end
+
+--- The rows sorted into folders by their group path.
+--- Each folder holds the rows directly inside it; `order` lists every folder
+--- path, sorted, and `roots` the rows with no folder.
+---@param rows table[]
+---@return { folders: table<string, table[]>, order: string[], roots: table[] }
+function M.group_rows(rows)
+  local folders = {}
+  local order = {}
+  local roots = {}
+
+  local function ensure_folder(dir)
+    local folder = folders[dir]
+    if not folder then
+      folder = {}
+      folders[dir] = folder
+      table.insert(order, dir)
+    end
+    return folder
+  end
+  for _, row in ipairs(rows) do
+    local dir = group_of(row)
+    if dir then
+      table.insert(ensure_folder(dir), row)
+    else
+      table.insert(roots, row)
+    end
+  end
+  table.sort(order)
+
+  return { folders = folders, order = order, roots = roots }
+end
+
+--- The connection rows, grouped into folder nodes the way the scratchpads are.
+--- Folders draw first, sorted; ungrouped rows follow in the order they came in.
+---@param rows table[]
+---@return table[]
+function M.connection_nodes(rows)
+  local parts = assert(nui())
+  local grouped = M.group_rows(rows)
+
+  -- A folder opens on first sight, so a connection saved into a new group shows at once.
+  local function folder_node(dir)
+    local id = 'group:' .. dir
+    if not seen_groups[id] then
+      seen_groups[id] = true
+      if expanded[id] == nil then
+        expanded[id] = true
+      end
+    end
+
+    local children = {}
+    for _, sub in ipairs(grouped.order) do
+      local rest = sub:sub(#dir + 2)
+      if vim.startswith(sub, dir .. '/') and not rest:find('/', 1, true) then
+        table.insert(children, folder_node(sub))
+      end
+    end
+    for _, row in ipairs(grouped.folders[dir]) do
+      table.insert(children, connection_node(row))
+    end
+
+    local built = parts.Tree.Node({
+      id = id,
+      kind = 'connection_group',
+      icon_kind = 'connection_group',
+      name = vim.fn.fnamemodify(dir, ':t'),
+      rel = dir,
+      note = tostring(#children),
+      expandable = true,
+    }, children)
+
+    if expanded[id] then
+      built:expand()
+    end
+    return built
+  end
+
+  local nodes = {}
+  for _, dir in ipairs(grouped.order) do
+    -- Only top-level folders; nested ones are drawn inside their parent.
+    if not dir:find('/', 1, true) then
+      table.insert(nodes, folder_node(dir))
+    end
+  end
+  for _, row in ipairs(grouped.roots) do
+    table.insert(nodes, connection_node(row))
+  end
+  return nodes
 end
 
 --- Redraw the tree.
@@ -563,36 +735,7 @@ function M.render()
     return utils.notify(err, vim.log.levels.ERROR)
   end
 
-  local icons = require('sqmeow.core.icons')
-  local nodes = {}
-
-  for _, connection in ipairs(M.connection_rows()) do
-    local open = connection.id ~= nil and M.is_expanded(connection.id, {})
-
-    local node = parts.Tree.Node({
-      id = 'conn:' .. tostring(connection.id or connection.name),
-      conn_id = connection.id,
-      path = {},
-      name = connection.name,
-      kind = 'connection',
-      icon_kind = icons.connection_kind(connection.dialect),
-      badge = connection.status,
-      -- A connection on its way, or one that failed, says so in words beside the dot.
-      note = (connection.status == 'connecting' or connection.status == 'error')
-          and connection.status
-        or connection.dialect
-        or connection.note,
-      url = connection.url,
-      -- A connection nobody has opened has nothing to show yet.
-      expandable = connection.connected,
-      show_marker = true,
-    }, open and schema_nodes(connection.id, {}) or nil)
-
-    if open then
-      node:expand()
-    end
-    table.insert(nodes, node)
-  end
+  local nodes = M.connection_nodes(M.connection_rows())
 
   if #nodes == 0 then
     table.insert(
@@ -762,6 +905,10 @@ function M.actions.toggle()
     return M.render()
   end
   if node.kind == 'scratchpad_group' then
+    expanded[node.id] = not expanded[node.id] or nil
+    return M.render()
+  end
+  if node.kind == 'connection_group' then
     expanded[node.id] = not expanded[node.id] or nil
     return M.render()
   end
@@ -1139,6 +1286,41 @@ function M.actions.yank_select()
   utils.notify('yanked ' .. statement)
 end
 
+--- Move every connection in one folder to another, as far as the sources allow.
+--- Only a file-source entry can be edited, so the rest stay behind and are named.
+---@param from string The folder path, as the node carries it.
+---@param to string What the user asked to call it instead.
+function M.move_group(from, to)
+  local target = group_of({ group = to })
+  if not target then
+    return utils.notify('the folder needs a name', vim.log.levels.WARN)
+  end
+
+  local stayed = {}
+  for _, row in ipairs(M.connection_rows()) do
+    if in_group(group_of(row) or '', from) then
+      local spec = require('sqmeow.sources').find(row.name)
+      if spec and spec.source == 'file' then
+        require('sqmeow.api.connection').edit(row.name, { group = target })
+      else
+        table.insert(stayed, { name = row.name, source = spec and spec.source })
+      end
+    end
+  end
+
+  for _, member in ipairs(stayed) do
+    if member.source then
+      utils.notify(
+        ('`%s` comes from %s, so it stays behind'):format(member.name, member.source),
+        vim.log.levels.WARN
+      )
+    else
+      utils.notify(('`%s` is not saved, so it stays behind'):format(member.name), vim.log.levels.WARN)
+    end
+  end
+  M.render()
+end
+
 --- Rename the connection or the scratchpad under the cursor.
 function M.actions.rename()
   local node = M.current_node()
@@ -1153,6 +1335,15 @@ function M.actions.rename()
         return
       end
       require('sqmeow.api.connection').rename(node.conn_id, name)
+    end)
+  end
+
+  if node and node.kind == 'connection_group' then
+    return vim.ui.input({ prompt = 'Move the folder to: ', default = node.rel }, function(name)
+      if not name or name == '' or name == node.rel then
+        return
+      end
+      M.move_group(node.rel, name)
     end)
   end
 
@@ -1249,9 +1440,17 @@ function M.actions.use()
   end
 end
 
---- Add a connection.
+--- Add a connection, prefilling the folder under the cursor so it lands there
+--- unless the group says otherwise.
 function M.actions.add()
-  require('sqmeow.ui.connection').create()
+  local node = M.current_node()
+  local prefix = nil
+  if node and node.kind == 'connection_group' and node.rel then
+    prefix = node.rel
+  elseif node and node.kind == 'connection' and node.group then
+    prefix = node.group
+  end
+  require('sqmeow.ui.connection').create(prefix)
 end
 
 --- Create a scratchpad, prefilling the folder under the cursor so the file lands there
@@ -1422,6 +1621,20 @@ function M.actions.delete()
     return delete_connection({ kind = 'connection', name = opened.name, conn_id = opened.id })
   end
 
+  if node and node.kind == 'connection_group' then
+    -- A folder exists only while connections name it, so an empty one is already gone.
+    local members = 0
+    for _, row in ipairs(M.connection_rows()) do
+      if in_group(group_of(row) or '', node.rel) then
+        members = members + 1
+      end
+    end
+    return utils.notify(
+      ('the folder `%s` still holds %d connections; delete them first'):format(node.rel, members),
+      vim.log.levels.WARN
+    )
+  end
+
   if node and node.kind == 'scratchpad_group' then
     return vim.ui.select({ 'no', 'yes' }, {
       prompt = ('Delete the folder `%s` and everything in it?'):format(node.rel),
@@ -1579,6 +1792,7 @@ function M.reset()
 
   expanded = { [SCRATCHPADS] = pads }
   seen_pads = {}
+  seen_groups = {}
   cache = {}
   M.cancel_edits()
   tree = nil

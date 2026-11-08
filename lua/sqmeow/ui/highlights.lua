@@ -37,6 +37,7 @@ M.links = {
   SqmeowDetailType = 'Type',
 
   SqmeowIconConnection = 'Directory',
+  SqmeowIconConnectionGroup = 'Directory',
   SqmeowIconSchema = 'Directory',
   SqmeowIconTable = 'Type',
   SqmeowIconView = 'Special',

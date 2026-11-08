@@ -10,6 +10,7 @@ local M = {}
 ---@field url string
 ---@field read_only boolean|nil Runs only statements that read.
 ---@field ssh string|nil The `user@host` an SSH tunnel to the database goes through.
+---@field group string|nil The drawer folder it draws in, such as `work` or `work/prod`.
 ---@field source string|nil Which source it came from.
 ---@field env_file string|nil Project-local dotenv path, resolved only in the engine.
 
@@ -63,6 +64,7 @@ function M.load()
           url = entry.url,
           read_only = entry.read_only == true or nil,
           ssh = type(entry.ssh) == 'string' and entry.ssh ~= '' and entry.ssh or nil,
+          group = type(entry.group) == 'string' and entry.group ~= '' and entry.group or nil,
           source = name,
           env_file = entry.env_file,
         })
@@ -96,6 +98,7 @@ function M.save(connection)
     url = connection.url,
     read_only = connection.read_only,
     ssh = connection.ssh,
+    group = connection.group,
   })
 end
 

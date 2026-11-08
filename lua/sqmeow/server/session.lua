@@ -1,8 +1,9 @@
 --- Persists open connections and drawer expansion across restarts.
 ---
 --- When `ui.persist_session` is on, the set of open connection names, the
---- current connection, and the expanded drawer paths are saved to
---- `session.json` on `VimLeavePre` and restored once on next `open_drawer`.
+--- current connection, the expanded drawer paths, and the open connection
+--- folders are saved to `session.json` on `VimLeavePre` and restored once on
+--- next `open_drawer`.
 
 local M = {}
 
@@ -31,6 +32,7 @@ function M.save()
     connections = connections,
     current = current and current.name or nil,
     expanded = require('sqmeow.ui.drawer').expanded_paths(),
+    groups = require('sqmeow.ui.drawer').open_groups(),
   }
   vim.fn.mkdir(require('sqmeow.core.paths').root(), 'p')
   vim.fn.writefile({ vim.json.encode(session) }, path())
@@ -58,6 +60,8 @@ function M.restore()
     pending[entry.connection] = pending[entry.connection] or {}
     table.insert(pending[entry.connection], entry.path)
   end
+  -- Folders open before anything draws, so a grouped connection shows inside its folder.
+  require('sqmeow.ui.drawer').reopen_groups(session.groups)
 
   local state = require('sqmeow.core.state')
   for _, name in ipairs(session.connections or {}) do

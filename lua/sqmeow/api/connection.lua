@@ -13,7 +13,8 @@ end
 --- Open a connection. Returns when the engine accepts; success arrives as an event.
 ---@param url string A database URL, such as `sqlite://app.db` or `postgres://localhost/app`.
 ---@param opts table|nil `name` labels it; `database` and `parent` identify a child
---- database; `read_only` rejects writes; `ssh` selects an SSH host or alias.
+--- database; `read_only` rejects writes; `ssh` selects an SSH host or alias;
+--- `group` names the drawer folder it draws in.
 --- Project sources carry an `env_file` path for project-local credential templates.
 ---@return integer|nil id The connection id, or nil if the engine refused the request.
 ---@return string|nil error
@@ -39,6 +40,7 @@ function M.connect(url, opts)
     read_only = opts.read_only,
     ssh = opts.ssh,
     env_file = opts.env_file,
+    group = opts.group,
   })
   require('sqmeow.ui.drawer').render()
 
@@ -96,7 +98,13 @@ function M.connect_named(name)
 
   return M.connect(
     spec.url,
-    { name = spec.name, read_only = spec.read_only, ssh = spec.ssh, env_file = spec.env_file }
+    {
+      name = spec.name,
+      read_only = spec.read_only,
+      ssh = spec.ssh,
+      env_file = spec.env_file,
+      group = spec.group,
+    }
   )
 end
 
@@ -115,7 +123,8 @@ end
 ---@param name string
 ---@param url string
 ---@param opts table|nil `read_only` saves it as a connection that runs only statements that read,
----  and `ssh` as one reached through an SSH tunnel to that `user@host`.
+---  `ssh` as one reached through an SSH tunnel to that `user@host`, and `group` as one
+---  that draws in a drawer folder.
 ---@return boolean written
 function M.save(name, url, opts)
   opts = opts or {}
@@ -124,6 +133,7 @@ function M.save(name, url, opts)
     url = url,
     read_only = opts.read_only,
     ssh = opts.ssh,
+    group = opts.group,
   })
   if not written then
     notify(err or 'the connection could not be saved', vim.log.levels.ERROR)
@@ -132,11 +142,11 @@ function M.save(name, url, opts)
 end
 
 --- Update a file-source connection and rename its open copy.
---- URL, read-only, and tunnel apply after reconnect.
+--- URL, read-only, and tunnel apply after reconnect. A new group applies at once.
 --- Project entries cannot be edited here.
 ---@param name string The name it is saved under now.
----@param changes table `name`, `url`, `read_only` and `ssh`, `''` for no tunnel; any may be left out
----  to keep what is there.
+---@param changes table `name`, `url`, `read_only`, `ssh` and `group`; `''` clears the
+---  tunnel or the group, and any field may be left out to keep what is there.
 ---@return boolean written
 ---@usage >lua
 ---   require('sqmeow.api.connection').edit('app', { name = 'production' })
@@ -159,6 +169,11 @@ function M.edit(name, changes)
   elseif changes.ssh ~= '' then
     wanted.ssh = changes.ssh
   end
+  if changes.group == nil then
+    wanted.group = spec.group
+  elseif changes.group ~= '' then
+    wanted.group = changes.group
+  end
   local written, err = require('sqmeow.sources').update(name, wanted)
   if not written then
     notify(err or 'the connection could not be updated', vim.log.levels.ERROR)
@@ -167,6 +182,7 @@ function M.edit(name, changes)
 
   for _, connection in ipairs(M.connections()) do
     if connection.name == name then
+      connection.group = wanted.group
       M.rename(connection.id, wanted.name)
     end
   end

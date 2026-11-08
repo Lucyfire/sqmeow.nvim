@@ -60,4 +60,21 @@ T['reopens the saved connections, the current one, and the open drawer nodes'] =
   eq(drawer.is_expanded(state.connection_by_name('other').id, {}), true)
 end
 
+T['reopens the connection folders it saved'] = function()
+  file.add({ name = 'kept', url = 'sqlite::memory:', group = 'work' })
+  helpers.connect('sqlite::memory:', { name = 'kept', group = 'work' })
+  drawer.reopen_groups({ 'work' })
+  require('sqmeow.server.session').save()
+
+  -- A fresh drawer forgets everything, the way a restart does.
+  drawer.reset()
+  eq(drawer.open_groups(), {})
+
+  -- The module restores once per copy, so a second restore needs a fresh one.
+  package.loaded['sqmeow.server.session'] = nil
+  require('sqmeow.server.session').restore()
+  eq(drawer.open_groups(), { 'work' })
+  eq(state.connection_by_name('kept').group, 'work')
+end
+
 return T

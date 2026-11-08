@@ -136,13 +136,20 @@
 ---       "name": "dev",
 ---       "url": "postgres://app@localhost/dev",
 ---       "read_only": true,
----       "ssh": "user@bastion"
+---       "ssh": "user@bastion",
+---       "group": "work/prod"
 ---     }
 ---   ]
 --- <
 --- Only `name` and `url` are required. `read_only` defaults to false, and
 --- leaving out `ssh` means a direct connection. Set `core.path` to move saved
 --- connections together with the plugin's other files.
+---
+--- The optional `group` draws the connection inside a drawer folder, nested
+--- on `/`, so a long list can be organized into directories. Folders draw
+--- before ungrouped connections, and project TOML accepts the same field.
+--- Press `R` on a folder to move its connections, and `A` inside one to add
+--- a connection there.
 ---
 --- `:Sqmeow add` and `:Sqmeow save` write to `core.path/connections.json` and
 --- never touch project TOML. Credential templates such as
